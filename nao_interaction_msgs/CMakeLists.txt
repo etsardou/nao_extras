@@ -21,6 +21,7 @@ add_message_files(DIRECTORY msg
     FILES
 
     FaceDetected.msg 
+    MovementDetected.msg 
 )
 
 #And now generate the messages
