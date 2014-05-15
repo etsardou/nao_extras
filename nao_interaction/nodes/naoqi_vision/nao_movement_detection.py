@@ -38,7 +38,7 @@ import naoqi
 from naoqi import ( ALModule, ALBroker, ALProxy )
 from nao_driver import NaoNode
 
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32
 from nao_interaction_msgs.msg import MovementDetected
 from geometry_msgs.msg import Point
 
@@ -69,8 +69,10 @@ class NaoMovementDetection(ALModule, NaoNode):
         self.moduleName = moduleName
         self.init_almodule()
              
-        # init. messages:
+        #~ initialize the publisher
         self.movementPub = rospy.Publisher("movement_detected", MovementDetected)
+        #~ initialize the movement sensitivity service
+        self.sensitivitySub = rospy.Subscriber("movement_detection_sensitivity", Float32, self.handleSensitivityChange )
         
         self.subscribe()
         
@@ -87,9 +89,12 @@ class NaoMovementDetection(ALModule, NaoNode):
         ALModule.__init__(self, self.moduleName)
         
         self.memProxy = ALProxy("ALMemory",self.pip,self.pport)
-        # TODO: check self.memProxy.version() for > 1.6
         if self.memProxy is None:
             rospy.logerror("Could not get a proxy to ALMemory on %s:%d", self.pip, self.pport)
+            exit(1)
+        self.movementDetectionProxy = ALProxy("ALMovementDetection",self.pip,self.pport)
+        if self.movementDetectionProxy is None:
+            rospy.logerror("Could not get a proxy to ALMovementDetection on %s:%d", self.pip, self.pport)
             exit(1)
 
 
@@ -107,6 +112,14 @@ class NaoMovementDetection(ALModule, NaoNode):
 
     def unsubscribe(self):
         self.memProxy.unsubscribeToEvent("MovementDetection/MovementDetected", self.moduleName)
+
+    def handleSensitivityChange(self, req):
+        if (req.data < 0.0) or (req.data > 1.0):
+            return
+        
+        self.movementDetectionProxy.setSensitivity(req.data)
+        print self.movementDetectionProxy.getSensitivity()
+        rospy.loginfo("Sensitivity of nao_movement_detection changed to %d", req.data)
 
     def onMovementDetected(self, strVarName, value, strMessage):
         "Called when movement was detected"
