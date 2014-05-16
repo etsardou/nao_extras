@@ -19,10 +19,15 @@ find_package(catkin REQUIRED
 #Add message files
 add_message_files(DIRECTORY msg
     FILES
-
     FaceDetected.msg 
     MovementDetected.msg 
     LandmarkDetected.msg 
+)
+
+#Add service files
+add_service_files(DIRECTORY srv
+    FILES
+    AudioRecorder.srv
 )
 
 #And now generate the messages
