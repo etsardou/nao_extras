@@ -4,7 +4,8 @@
   <description>
     <p>
       Driver package for the Nao robot, providing access to:
-        - FaceRecognition
+        - NAOqi audio proxies
+        - NAOqi vision proxies
     </p>
   </description>
   <maintainer email="etsardou@gmail.com">Manos Tsardoulias</maintainer>
@@ -14,11 +15,6 @@
   <url type="bugtracker">https://github.com/ros-nao/nao_extras/issues</url>
   <url type="repository">https://github.com/ros-nao/nao_extras</url>
   
-  <author>Armin Hornung</author>
-  <author>Stefan Osswald</author>
-  <author>Daniel Maier</author>
-  <author>Miguel Sarabia</author>
-  <author>Severin Lemaignan</author>
   <author>Manos Tsardoulias</author>
 
   <buildtool_depend>catkin</buildtool_depend>

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #
-# ROS node to serve NAO's ALAudioRecorder's functionalities
+# ROS node to serve NAO's ALAudioPlayer's functionalities
 # This code is currently compatible to NaoQI version 1.6
 #
 # Copyright 2014 Manos Tsardoulias, CERTH/ITI
@@ -35,50 +35,86 @@
 import rospy
 import naoqi
 
+from naoqi import ( ALModule, ALBroker, ALProxy )
+
 from nao_driver import NaoNode
 
 from std_msgs.msg import String, Int32
-from nao_interaction_msgs.srv import AudioRecorder
+
 from std_srvs.srv import EmptyResponse
 
-#
-# Notes:
-# - A port number > 0 for the module must be specified.
-#   If port 0 is used, a free port will be assigned automatically,
-#   but naoqi is unable to pick up the assigned port number, leaving
-#   the module unable to communicate with naoqi (1.10.52).
-# 
-# - Callback functions _must_ have a docstring, otherwise they won't get bound.
-# 
-# - Shutting down the broker manually will result in a deadlock,
-#   not shutting down the broker will sometimes result in an exception 
-#   when the script ends (1.10.52).
-#
+from nao_interaction_msgs.srv import AudioMasterVolume
+from nao_interaction_msgs.srv import AudioRecorder
+
 
 class Constants:
-    NODE_NAME = "nao_audio_recorder"
+    NODE_NAME = "nao_audio_interface"
 
-class NaoAudioRecorderDetection(NaoNode):
-    def __init__(self):
+class NaoAudioInterface(ALModule, NaoNode):
+    def __init__(self, moduleName):
         # ROS initialization
         NaoNode.__init__(self)
         rospy.init_node( Constants.NODE_NAME )
         
-        self.connectNaoQi()
+        # NAOQi initialization
+        self.ip = ""
+        self.port = 10602
+        self.moduleName = moduleName
+        self.init_almodule()
         
         #~ ROS initializations
+        self.playFileSubscriber = rospy.Subscriber("nao_audio/play_file", String, self.playFile )        
+        self.masterVolumeSrv = rospy.Service("nao_audio/master_volume", AudioMasterVolume, self.handleAudioMasterVolumeSrv)
         self.enableRecordSrv = rospy.Service("nao_audio/record", AudioRecorder, self.handleRecorderSrv)
+        self.audioSourceLocalizationPub = rospy.Publisher("nao_audio/audio_source_localization", MovementDetected)
+        
+        self.subscribe()
         
         rospy.loginfo(Constants.NODE_NAME + " initialized")
-
-    def connectNaoQi(self):
-        '''(re-) connect to NaoQI'''
+  
+    def init_almodule(self):
+        # before we can instantiate an ALModule, an ALBroker has to be created
         rospy.loginfo("Connecting to NaoQi at %s:%d", self.pip, self.pport)
-
-        self.audioRecorderProxy = self.getProxy("ALAudioRecorder")
-        if self.audioRecorderProxy is None:
+        try:
+            self.broker = ALBroker("%sBroker" % self.moduleName, self.ip, self.port, self.pip, self.pport)
+        except RuntimeError,e:
+            print("Could not connect to NaoQi's main broker")
             exit(1)
+        ALModule.__init__(self, self.moduleName)
+        
+        self.audioPlayerProxy = ALProxy("ALAudioPlayer",self.pip,self.pport)
+        if self.audioPlayerProxy is None:
+            rospy.logerror("Could not get a proxy to ALAudioPlayer on %s:%d", self.pip, self.pport)
+            exit(1)
+            
+        self.audioRecorderProxy = ALProxy("ALAudioRecorder",self.pip,self.pport)
+        if self.audioRecorderProxy is None:
+            rospy.logerror("Could not get a proxy to ALAudioRecorder on %s:%d", self.pip, self.pport)
+            exit(1)
+        
+        self.audioDeviceProxy = ALProxy("ALAudioDevice",self.pip,self.pport)
+        if self.audioDeviceProxy is None:
+            rospy.logerror("Could not get a proxy to ALAudioDevice on %s:%d", self.pip, self.pport)
+            exit(1)
+            
+        self.audioSourceLocalizationProxy = ALProxy("ALAudioSourceLocalization",self.pip,self.pport)
+        if self.audioSourceLocalizationProxy is None:
+            rospy.logerror("Could not get a proxy to ALAudioSourceLocalization on %s:%d", self.pip, self.pport)
+            exit(1)
+            
+        self.audioSourceLocalizationProxy.setParameter("EnergyComputation", True)
+        self.audioSourceLocalizationProxy.setParameter("Sensibility", 0.5)
 
+    def playFile(self, req):
+        self.audioPlayerProxy.playFile("/home/nao/" + req.data)
+        
+    def handleAudioMasterVolumeSrv(self, req):
+        if (req.master_volume.data < 0) or (req.master_volume.data > 100):
+            return EmptyResponse
+        
+        self.audioDeviceProxy.setOutputVolume(req.master_volume.data)
+        return EmptyResponse
+    
     def handleRecorderSrv(self, req):
         
         file_path = req.file_path.data
@@ -129,11 +165,24 @@ class NaoAudioRecorderDetection(NaoNode):
         self.audioRecorderProxy.stopMicrophonesRecording()
         
         return EmptyResponse
+    
+    def shutdown(self): 
+        self.unsubscribe()
+
+    def subscribe(self):
+        self.memProxy.subscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName, "onSoundLocated")
+
+    def unsubscribe(self):
+        self.memProxy.unsubscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName)
+        
+    def onSoundLocated(self, strVarName, value, strMessage):
+        print value
 
 if __name__ == '__main__':
   
-    n = NaoAudioRecorderDetection()
-    rospy.loginfo("Starting " + Constants.NODE_NAME + " ...")
+    m = NaoAudioInterface("ROSNaoAudioInterfaceModule")
     rospy.spin()
-    rospy.loginfo("Stopping " + Constants.NODE_NAME + " ...")
+    rospy.loginfo("Stopping ROSNaoAudioInterfaceModule ...")
+    m.shutdown();        
+    rospy.loginfo("ROSNaoAudioInterfaceModule stopped.")
     exit(0)

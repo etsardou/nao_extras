@@ -28,6 +28,7 @@ add_message_files(DIRECTORY msg
 add_service_files(DIRECTORY srv
     FILES
     AudioRecorder.srv
+    AudioMasterVolume.srv
 )
 
 #And now generate the messages

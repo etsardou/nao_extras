@@ -16,4 +16,4 @@ std_msgs/Bool rear_channel
 # Typical value is 16000 Hz
 std_msgs/Int32 samplerate
 ---
-# Empty responce when the recording is done
+# Empty response when the recording is done

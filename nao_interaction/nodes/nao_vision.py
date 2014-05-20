@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #
-# ROS node to serve NAO's ALFaceDetectionProxy's functionalities
+# ROS node to serve NAOqi Vision functionalities
 # This code is currently compatible to NaoQI version 1.6
 #
 # Copyright 2014 Manos Tsardoulias, CERTH/ITI
@@ -33,61 +33,60 @@
 #
 
 import rospy
-
 import naoqi
-from std_msgs.msg import String
-from nao_interaction_msgs.msg import FaceDetected
-from naoqi import ( ALModule, ALBroker, ALProxy )
 
-#
-# Notes:
-# - A port number > 0 for the module must be specified.
-#   If port 0 is used, a free port will be assigned automatically,
-#   but naoqi is unable to pick up the assigned port number, leaving
-#   the module unable to communicate with naoqi (1.10.52).
-# 
-# - Callback functions _must_ have a docstring, otherwise they won't get bound.
-# 
-# - Shutting down the broker manually will result in a deadlock,
-#   not shutting down the broker will sometimes result in an exception 
-#   when the script ends (1.10.52).
-#
+from naoqi import ( 
+    ALModule, 
+    ALBroker, 
+    ALProxy)
+    
+from nao_driver import NaoNode
 
-class NaoFaceDetection(ALModule):
-    "Sends callbacks for NAO's face detection to ROS"
+#~ ROS msgs
+from std_msgs.msg import (
+    String, 
+    Float32, 
+    Int32)
+    
+from geometry_msgs.msg import (
+    Point)
+
+#~ nao-ros msgs
+from nao_interaction_msgs.msg import (
+    FaceDetected,
+    MovementDetected,
+    LandmarkDetected)
+
+class Constants:
+    NODE_NAME = "nao_vision_interface"
+    MODULE_NAME = "ROSNaoVisionModule"
+
+class NaoVisionInterface(ALModule, NaoNode):
+    "sss"
     def __init__(self, moduleName):
-        # get connection from command line:
-        from optparse import OptionParser
-
-        parser = OptionParser()
-        parser.add_option("--ip", dest="ip", default="",
-                          help="IP/hostname of broker. Default is system's default IP address.", metavar="IP")
-        parser.add_option("--port", dest="port", default=10512,
-                          help="IP/hostname of broker. Default is 10511.", metavar="PORT")
-        parser.add_option("--pip", dest="pip", default="127.0.0.1",
-                          help="IP/hostname of parent broker. Default is 127.0.0.1.", metavar="IP")
-        parser.add_option("--pport", dest="pport", default=9559,
-                          help="port of parent broker. Default is 9559.", metavar="PORT")
-
-        (options, args) = parser.parse_args()
-        self.ip = options.ip
-        self.port = int(options.port)
-        self.pip = options.pip
-        self.pport = int(options.pport)
+        # ROS initialization
+        NaoNode.__init__(self)
+        rospy.init_node( Constants.NODE_NAME )
+        
+        # NAOQi initialization
+        self.ip = ""
+        self.port = 10601
         self.moduleName = moduleName
-        
         self.init_almodule()
-        
-        # ROS initialization:
-        rospy.init_node('nao_face_detection')
              
-        # init. messages:
+        #~ ROS initializations
+        self.landmarkPub = rospy.Publisher("landmark_detected", LandmarkDetected)
+
         self.faces = FaceDetected()              
         self.facesPub = rospy.Publisher("faces_detected", FaceDetected)
+
+        self.movementPub = rospy.Publisher("movement_detected", MovementDetected)
+
+        self.sensitivitySub = rospy.Subscriber("movement_detection_sensitivity", Float32, self.handleSensitivityChange )
         
         self.subscribe()
         
-        rospy.loginfo("nao_face_detection initialized")
+        rospy.loginfo("nao_vision_interface initialized")
 
     def init_almodule(self):
         # before we can instantiate an ALModule, an ALBroker has to be created
@@ -100,26 +99,74 @@ class NaoFaceDetection(ALModule):
         ALModule.__init__(self, self.moduleName)
         
         self.memProxy = ALProxy("ALMemory",self.pip,self.pport)
-        # TODO: check self.memProxy.version() for > 1.6
         if self.memProxy is None:
             rospy.logerror("Could not get a proxy to ALMemory on %s:%d", self.pip, self.pport)
+            exit(1)
+            
+        self.landmarkDetectionProxy = ALProxy("ALLandMarkDetection",self.pip,self.pport)
+        if self.landmarkDetectionProxy is None:
+            rospy.logerror("Could not get a proxy to ALLandMarkDetection on %s:%d", self.pip, self.pport)
+            exit(1)
+        
+        self.movementDetectionProxy = ALProxy("ALMovementDetection",self.pip,self.pport)
+        if self.movementDetectionProxy is None:
+            rospy.logerror("Could not get a proxy to ALMovementDetection on %s:%d", self.pip, self.pport)
             exit(1)
 
 
     def shutdown(self): 
         self.unsubscribe()
-        # Shutting down broker seems to be not necessary any more
-        # try:
-        #     self.broker.shutdown()
-        # except RuntimeError,e:
-        #     rospy.logwarn("Could not shut down Python Broker: %s", e)
 
     def subscribe(self):
         # Subscription to the FaceDetected event
+        self.memProxy.subscribeToEvent("LandmarkDetected", self.moduleName, "onLandmarkDetected")
+        print self.landmarkDetectionProxy.updatePeriod("ROSNaoVisionModuleLandmarkDetected", 200)
+        
         self.memProxy.subscribeToEvent("FaceDetected", self.moduleName, "onFaceDetected")
+        #~ 
+        self.memProxy.subscribeToEvent("MovementDetection/MovementDetected", self.moduleName, "onMovementDetected")
 
     def unsubscribe(self):
+        self.memProxy.unsubscribeToEvent("LandmarkDetected", self.moduleName)
+        
         self.memProxy.unsubscribeToEvent("FaceDetected", self.moduleName)
+        
+        self.memProxy.unsubscribeToEvent("MovementDetection/MovementDetected", self.moduleName)
+
+    def onLandmarkDetected(self, strVarName, value, strMessage):
+        "Called when landmark was detected"
+        if len(value) == 0:
+            return
+            
+        # For the specific fields in the value variable check here:
+        # https://community.aldebaran-robotics.com/doc/1-14/naoqi/vision/allandmarkdetection-api.html#landmarkdetected-value-structure
+        
+        msg = LandmarkDetected()  
+        
+        for i in range (0, len(value[1])):
+            msg.shape_alpha.append(Float32(value[1][i][0][1]))
+            msg.shape_beta.append(Float32(value[1][i][0][2]))
+            msg.shape_sizex.append(Float32(value[1][i][0][3]))
+            msg.shape_sizey.append(Float32(value[1][i][0][4]))
+            msg.mark_ids.append(Int32(value[1][i][1][0]))
+            
+        msg.camera_local_pose.position.x = value[2][0]
+        msg.camera_local_pose.position.y = value[2][1]
+        msg.camera_local_pose.position.z = value[2][2]
+        msg.camera_local_pose.orientation.x = value[2][3]
+        msg.camera_local_pose.orientation.y = value[2][4]
+        msg.camera_local_pose.orientation.z = value[2][5]
+        
+        msg.camera_world_pose.position.x = value[3][0]
+        msg.camera_world_pose.position.y = value[3][1]
+        msg.camera_world_pose.position.z = value[3][2]
+        msg.camera_world_pose.orientation.x = value[3][3]
+        msg.camera_world_pose.orientation.y = value[3][4]
+        msg.camera_world_pose.orientation.z = value[3][5]
+        
+        msg.camera_name = String(value[4])
+        
+        self.landmarkPub.publish(msg)
 
     def onFaceDetected(self, strVarName, value, strMessage):
         "Called when a face was detected"
@@ -130,7 +177,6 @@ class NaoFaceDetection(ALModule):
         # For the specific fields in the value variable check here:
         #https://community.aldebaran-robotics.com/doc/1-14/naoqi/vision/alfacedetection.html
         
-        #~ Camera id
         self.faces.camera_id.data = int(value[4]);
         
         self.faces.camera_0_pose.position.x = float(value[2][0])
@@ -147,9 +193,6 @@ class NaoFaceDetection(ALModule):
         self.faces.camera_1_pose.orientation.y = float(value[3][4])
         self.faces.camera_1_pose.orientation.z = float(value[3][5])
         
-        #~ value[1][0][0] : Face info
-        #~ value[1][0][1] : Extra info
-        #~ Shape information
         self.faces.shape_alpha.data = float(value[1][0][0][1])
         self.faces.shape_beta.data = float(value[1][0][0][2])
         self.faces.shape_sizeX.data = float(value[1][0][0][3])
@@ -229,12 +272,43 @@ class NaoFaceDetection(ALModule):
 
         self.facesPub.publish(self.faces)
 
-if __name__ == '__main__':
-    ROSNaoFaceDetectionModule = NaoFaceDetection("ROSNaoFaceDetectionModule")
+    def handleSensitivityChange(self, req):
+        if (req.data < 0.0) or (req.data > 1.0):
+            return
+        
+        self.movementDetectionProxy.setSensitivity(req.data)
+        print self.movementDetectionProxy.getSensitivity()
+        rospy.loginfo("Sensitivity of nao_movement_detection changed to %d", req.data)
 
+    def onMovementDetected(self, strVarName, value, strMessage):
+        "Called when movement was detected"
+        datavar = self.memProxy.getData("MovementDetection/MovementInfo")
+        
+        movement = MovementDetected()  
+        
+        movement.gravity_center.x = datavar[0][0][0]
+        movement.gravity_center.y = datavar[0][0][1]
+
+        movement.mean_velocity.x = datavar[0][1][0]
+        movement.mean_velocity.y = datavar[0][1][1]
+
+        for i in range(0, len(datavar[0][2])):
+          movement.points_poses.append(Point())
+          movement.points_poses[i].x = datavar[0][2][i][0]
+          movement.points_poses[i].y = datavar[0][2][i][1]
+          
+          movement.points_speeds.append(Point())
+          movement.points_speeds[i].x = datavar[0][3][i][0]
+          movement.points_speeds[i].y = datavar[0][3][i][1]
+        
+        self.movementPub.publish(movement)
+
+if __name__ == '__main__':
+  
+    ROSNaoVisionModule = NaoVisionInterface(Constants.MODULE_NAME)
     rospy.spin()
-    
-    rospy.loginfo("Stopping nao_face_detection ...")
-    ROSNaoFaceDetectionModule.shutdown();        
-    rospy.loginfo("nao_face_detection stopped.")
+
+    rospy.loginfo("Stopping ROSNaoVisionModule ...")
+    ROSNaoVisionModule.shutdown();        
+    rospy.loginfo("ROSNaoVisionModule stopped.")
     exit(0)
