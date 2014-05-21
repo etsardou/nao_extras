@@ -48,6 +48,10 @@ from std_msgs.msg import (
     Float32, 
     Int32)
     
+from std_srvs.srv import (
+    EmptyResponse,
+    Empty)
+    
 from geometry_msgs.msg import (
     Point)
 
@@ -73,16 +77,20 @@ class NaoVisionInterface(ALModule, NaoNode):
         self.port = 10601
         self.moduleName = moduleName
         self.init_almodule()
+        
+        #~ Variable initialization
+        self.faces = FaceDetected()  
+        face_detection_enabled = False
+        motion_detection_enabled = False
+        landmark_detection_enabled = False
              
         #~ ROS initializations
-        self.landmarkPub = rospy.Publisher("landmark_detected", LandmarkDetected)
-
-        self.faces = FaceDetected()              
-        self.facesPub = rospy.Publisher("faces_detected", FaceDetected)
-
-        self.movementPub = rospy.Publisher("movement_detected", MovementDetected)
-
-        self.sensitivitySub = rospy.Subscriber("movement_detection_sensitivity", Float32, self.handleSensitivityChange )
+        self.subscribeFaceSrv = rospy.Service("nao_vision/face_detection/enable", Empty, self.serveSubscribeFaceSrv)
+        self.unsubscribeFaceSrv = rospy.Service("nao_vision/face_detection/disable", Empty, self.serveUnsubscribeFaceSrv)
+        self.subscribeMotionSrv = rospy.Service("nao_vision/motion_detection/enable", Empty, self.serveSubscribeMotionSrv)
+        self.unsubscribeMotionSrv = rospy.Service("nao_vision/motion_detection/disable", Empty, self.serveUnsubscribeMotionSrv)
+        self.subscribeLandmarkSrv = rospy.Service("nao_vision/landmark_detection/enable", Empty, self.serveSubscribeLandmarkSrv)
+        self.unsubscribeLandmarkSrv = rospy.Service("nao_vision/landmark_detection/disable", Empty, self.serveUnsubscribeLandmarkSrv)
         
         self.subscribe()
         
@@ -113,25 +121,21 @@ class NaoVisionInterface(ALModule, NaoNode):
             rospy.logerror("Could not get a proxy to ALMovementDetection on %s:%d", self.pip, self.pport)
             exit(1)
 
-
     def shutdown(self): 
         self.unsubscribe()
 
     def subscribe(self):
-        # Subscription to the FaceDetected event
-        self.memProxy.subscribeToEvent("LandmarkDetected", self.moduleName, "onLandmarkDetected")
-        print self.landmarkDetectionProxy.updatePeriod("ROSNaoVisionModuleLandmarkDetected", 200)
-        
-        self.memProxy.subscribeToEvent("FaceDetected", self.moduleName, "onFaceDetected")
-        #~ 
-        self.memProxy.subscribeToEvent("MovementDetection/MovementDetected", self.moduleName, "onMovementDetected")
+        #~ Subscriptions are performed via srv calls to save cpu power 
+        pass
 
     def unsubscribe(self):
-        self.memProxy.unsubscribeToEvent("LandmarkDetected", self.moduleName)
+        if landmark_detection_enabled:
+            self.memProxy.unsubscribeToEvent("LandmarkDetected", self.moduleName)
+        if face_detection_enabled:
+            self.memProxy.unsubscribeToEvent("FaceDetected", self.moduleName)
+        if motion_detection_enabled:
+            self.memProxy.unsubscribeToEvent("MovementDetection/MovementDetected", self.moduleName)
         
-        self.memProxy.unsubscribeToEvent("FaceDetected", self.moduleName)
-        
-        self.memProxy.unsubscribeToEvent("MovementDetection/MovementDetected", self.moduleName)
 
     def onLandmarkDetected(self, strVarName, value, strMessage):
         "Called when landmark was detected"
@@ -303,6 +307,42 @@ class NaoVisionInterface(ALModule, NaoNode):
         
         self.movementPub.publish(movement)
 
+    def serveSubscribeFaceSrv(self, req):
+        self.facesPub = rospy.Publisher("nao_vision/faces_detected", FaceDetected)
+        self.memProxy.subscribeToEvent("FaceDetected", self.moduleName, "onFaceDetected")
+        self.face_detection_enabled = True
+        
+    def serveUnsubscribeFaceSrv(self, req):
+        if self.face_detection_enabled:
+            self.memProxy.unsubscribeToEvent("FaceDetected", self.moduleName)
+            self.facesPub.unregister()
+            self.face_detection_enabled = False
+        
+    def serveSubscribeMotionSrv(self, req):
+        self.movementPub = rospy.Publisher("nao_vision/movement_detected", MovementDetected)
+        self.sensitivitySub = rospy.Subscriber("nao_vision/movement_detection_sensitivity", Float32, self.handleSensitivityChange )
+        self.memProxy.subscribeToEvent("MovementDetection/MovementDetected", self.moduleName, "onMovementDetected")
+        self.motion_detection_enabled = True
+        
+    def serveUnsubscribeMotionSrv(self, req):
+        if self.motion_detection_enabled:
+            self.memProxy.unsubscribeToEvent("MovementDetection/MovementDetected", self.moduleName)
+            self.movementPub.unregister()
+            self.sensitivitySub.unregister()
+            self.motion_detection_enabled = False
+        
+    def serveSubscribeLandmarkSrv(self, req):
+        self.landmarkPub = rospy.Publisher("nao_vision/landmark_detected", LandmarkDetected)
+        self.memProxy.subscribeToEvent("LandmarkDetected", self.moduleName, "onLandmarkDetected")
+        self.landmarkDetectionProxy.updatePeriod("ROSNaoVisionModuleLandmarkDetected", 200)
+        self.landmark_detection_enabled = True
+        
+    def serveUnsubscribeLandmarkSrv(self, req):
+        if self.landmark_detection_enabled:
+            self.memProxy.unsubscribeToEvent("LandmarkDetected", self.moduleName)
+            self.landmarkPub.unregister()
+            self.landmark_detection_enabled = False
+        
 if __name__ == '__main__':
   
     ROSNaoVisionModule = NaoVisionInterface(Constants.MODULE_NAME)

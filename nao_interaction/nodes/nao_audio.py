@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #
-# ROS node to serve NAO's ALAudioPlayer's functionalities
+# ROS node to serve NAOqi audio functionalities
 # This code is currently compatible to NaoQI version 1.6
 #
 # Copyright 2014 Manos Tsardoulias, CERTH/ITI
@@ -35,20 +35,33 @@
 import rospy
 import naoqi
 
-from naoqi import ( ALModule, ALBroker, ALProxy )
+from naoqi import ( 
+    ALModule, 
+    ALBroker, 
+    ALProxy )
 
-from nao_driver import NaoNode
+from nao_driver import (
+    NaoNode)
 
-from std_msgs.msg import String, Int32
+from std_msgs.msg import (
+    String, 
+    Int32)
 
-from std_srvs.srv import EmptyResponse
+from std_srvs.srv import (
+    EmptyResponse,
+    Empty)
 
-from nao_interaction_msgs.srv import AudioMasterVolume
-from nao_interaction_msgs.srv import AudioRecorder
+from nao_interaction_msgs.msg import (
+    AudioSourceLocalization)
+
+from nao_interaction_msgs.srv import (
+    AudioMasterVolume,
+    AudioRecorder)
 
 
 class Constants:
     NODE_NAME = "nao_audio_interface"
+    MODULE_NAME = "ROSNaoAudioModule"
 
 class NaoAudioInterface(ALModule, NaoNode):
     def __init__(self, moduleName):
@@ -66,7 +79,7 @@ class NaoAudioInterface(ALModule, NaoNode):
         self.playFileSubscriber = rospy.Subscriber("nao_audio/play_file", String, self.playFile )        
         self.masterVolumeSrv = rospy.Service("nao_audio/master_volume", AudioMasterVolume, self.handleAudioMasterVolumeSrv)
         self.enableRecordSrv = rospy.Service("nao_audio/record", AudioRecorder, self.handleRecorderSrv)
-        self.audioSourceLocalizationPub = rospy.Publisher("nao_audio/audio_source_localization", MovementDetected)
+        #~ self.audioSourceLocalizationPub = rospy.Publisher("nao_audio/audio_source_localization", AudioSourceLocalization)
         
         self.subscribe()
         
@@ -97,13 +110,13 @@ class NaoAudioInterface(ALModule, NaoNode):
             rospy.logerror("Could not get a proxy to ALAudioDevice on %s:%d", self.pip, self.pport)
             exit(1)
             
-        self.audioSourceLocalizationProxy = ALProxy("ALAudioSourceLocalization",self.pip,self.pport)
-        if self.audioSourceLocalizationProxy is None:
-            rospy.logerror("Could not get a proxy to ALAudioSourceLocalization on %s:%d", self.pip, self.pport)
-            exit(1)
-            
-        self.audioSourceLocalizationProxy.setParameter("EnergyComputation", True)
-        self.audioSourceLocalizationProxy.setParameter("Sensibility", 0.5)
+        #~ self.audioSourceLocalizationProxy = ALProxy("ALAudioSourceLocalization",self.pip,self.pport)
+        #~ if self.audioSourceLocalizationProxy is None:
+            #~ rospy.logerror("Could not get a proxy to ALAudioSourceLocalization on %s:%d", self.pip, self.pport)
+            #~ exit(1)
+            #~ 
+        #~ self.audioSourceLocalizationProxy.setParameter("EnergyComputation", 1)
+        #~ self.audioSourceLocalizationProxy.setParameter("Sensibility", 0.5)
 
     def playFile(self, req):
         self.audioPlayerProxy.playFile("/home/nao/" + req.data)
@@ -170,19 +183,21 @@ class NaoAudioInterface(ALModule, NaoNode):
         self.unsubscribe()
 
     def subscribe(self):
-        self.memProxy.subscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName, "onSoundLocated")
+        #~ self.memProxy.subscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName, "onSoundLocated")
+        pass
 
     def unsubscribe(self):
-        self.memProxy.unsubscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName)
+        #~ self.memProxy.unsubscribeToEvent("ALAudioSourceLocalization/SoundLocated", self.moduleName)
+        pass
         
     def onSoundLocated(self, strVarName, value, strMessage):
         print value
 
 if __name__ == '__main__':
   
-    m = NaoAudioInterface("ROSNaoAudioInterfaceModule")
+    ROSNaoAudioModule = NaoAudioInterface(Constants.MODULE_NAME)
     rospy.spin()
-    rospy.loginfo("Stopping ROSNaoAudioInterfaceModule ...")
-    m.shutdown();        
-    rospy.loginfo("ROSNaoAudioInterfaceModule stopped.")
+    rospy.loginfo("Stopping ROSNaoAudioModule ...")
+    ROSNaoAudioModule.shutdown();        
+    rospy.loginfo("ROSNaoAudioModule stopped.")
     exit(0)

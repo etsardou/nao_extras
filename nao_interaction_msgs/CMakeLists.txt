@@ -19,14 +19,18 @@ find_package(catkin REQUIRED
 #Add message files
 add_message_files(DIRECTORY msg
     FILES
+    #~ nao_vision
     FaceDetected.msg 
     MovementDetected.msg 
     LandmarkDetected.msg 
+    #~ nao_audio
+    AudioSourceLocalization.msg
 )
 
 #Add service files
 add_service_files(DIRECTORY srv
     FILES
+    #~ nao_audio
     AudioRecorder.srv
     AudioMasterVolume.srv
 )
